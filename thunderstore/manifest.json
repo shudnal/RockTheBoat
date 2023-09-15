@@ -1,0 +1,7 @@
+{
+  "name": "RockTheBoat",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/shudnal/RockTheBoat",
+  "description": "Tinker your ship. Nothing serious but QoL.",
+  "dependencies": ["denikson-BepInExPack_Valheim-5.4.2105"]
+}
