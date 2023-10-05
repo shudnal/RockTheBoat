@@ -23,12 +23,23 @@ extract RockTheBoat.dll file to your BepInEx\Plugins\ folder
 ## Known issues
 * Mod should be compatible with ValheimRaft and any other mod changing boat behavior.
 
+## Configurating
+The best way to handle configs is configuration manager. Choose one that works for you:
+
+https://www.nexusmods.com/site/mods/529
+
+https://valheim.thunderstore.io/package/Azumatt/Official_BepInEx_ConfigurationManager/
+
 ## Mirrors
+
 [Nexus](https://www.nexusmods.com/valheim/mods/2525)
 
 [Thunderstore](https://valheim.thunderstore.io/package/shudnal/RockTheBoat/)
 
 ## Changelog
+
+v 1.0.1
+* patch 0.217.22
 
 v 1.0.0
 * Initial release
