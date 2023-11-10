@@ -16,7 +16,7 @@ namespace RockTheBoat
     {
         const string pluginID = "shudnal.RockTheBoat";
         const string pluginName = "Rock the Boat";
-        const string pluginVersion = "1.0.2";
+        const string pluginVersion = "1.0.4";
 
         private Harmony _harmony;
 
@@ -37,13 +37,13 @@ namespace RockTheBoat
 
         private static ConfigEntry<float> emptyShipDamageMultiplier;
         private static ConfigEntry<float> playerDamageTakenMultiplier;
+        private static ConfigEntry<float> impactDamageMultiplier;
 
         private static ConfigEntry<float> sailingSpeedMultiplier;
         private static ConfigEntry<float> backwardSpeedMultiplier;
         private static ConfigEntry<float> steeringSpeedMultiplier;
 
         private static ConfigEntry<bool> nitroEnabled;
-
 
         internal static float nitroDownTime;
         internal static bool nitroStaminaDepleted;
@@ -86,6 +86,7 @@ namespace RockTheBoat
 
             playerDamageTakenMultiplier = config("Damage", "Player damage taken multiplier", defaultValue: 1.0f, "Damage taken by players on board from creatures");
             emptyShipDamageMultiplier = config("Damage", "Empty ship damage multiplier", defaultValue: 1.0f, "Set multiplier for ship damage taken when no one are on board");
+            impactDamageMultiplier = config("Damage", "Impact damage multiplier", defaultValue: 1.0f, "Set multiplier for ship damage taken on terrain hit");
 
             removeShipWithHammer = config("Misc", "Remove ship with hammer", defaultValue: false, "Ships become removable by hammer like good old times. Relog required on change.");
             preventDrowningNearTheShip = config("Misc", "Prevent drowning near the ship", defaultValue: true, "Prevents drowning if you are touching the ship");
@@ -320,7 +321,17 @@ namespace RockTheBoat
                 if (___m_nview == null)
                     return;
 
-                if (hit.m_hitType != HitData.HitType.PlayerHit && __instance.TryGetComponent<Ship>(out Ship ship) && !ship.HasPlayerOnboard())
+                if (impactDamageMultiplier.Value == 1.0f && emptyShipDamageMultiplier.Value == 1.0f)
+                    return;
+
+                if (!__instance.TryGetComponent<Ship>(out Ship ship))
+                    return;
+
+                if (hit.m_hitType == HitData.HitType.Boat && impactDamageMultiplier.Value != 1.0f)
+                {
+                    ModifyHitDamage(ref hit, impactDamageMultiplier.Value);
+                }
+                else if (hit.m_hitType != HitData.HitType.PlayerHit && emptyShipDamageMultiplier.Value != 1.0f && !ship.HasPlayerOnboard())
                 {
                     if (hit.HaveAttacker() && hit.GetAttacker().IsBoss())
                         return; 

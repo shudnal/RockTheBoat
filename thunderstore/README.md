@@ -36,6 +36,9 @@ https://valheim.thunderstore.io/package/Azumatt/Official_BepInEx_ConfigurationMa
 
 ## Changelog
 
+v 1.0.4
+* option to control impact damage
+
 v 1.0.2
 * patch 0.217.22, server sync fix
 
