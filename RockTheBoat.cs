@@ -16,7 +16,7 @@ namespace RockTheBoat
     {
         const string pluginID = "shudnal.RockTheBoat";
         const string pluginName = "Rock the Boat";
-        const string pluginVersion = "1.0.4";
+        const string pluginVersion = "1.0.5";
 
         private Harmony _harmony;
 
@@ -38,6 +38,7 @@ namespace RockTheBoat
         private static ConfigEntry<float> emptyShipDamageMultiplier;
         private static ConfigEntry<float> playerDamageTakenMultiplier;
         private static ConfigEntry<float> impactDamageMultiplier;
+        private static ConfigEntry<float> shipDamageToPlayerBuildings;
 
         private static ConfigEntry<float> sailingSpeedMultiplier;
         private static ConfigEntry<float> backwardSpeedMultiplier;
@@ -87,6 +88,7 @@ namespace RockTheBoat
             playerDamageTakenMultiplier = config("Damage", "Player damage taken multiplier", defaultValue: 1.0f, "Damage taken by players on board from creatures");
             emptyShipDamageMultiplier = config("Damage", "Empty ship damage multiplier", defaultValue: 1.0f, "Set multiplier for ship damage taken when no one are on board");
             impactDamageMultiplier = config("Damage", "Impact damage multiplier", defaultValue: 1.0f, "Set multiplier for ship damage taken on terrain hit");
+            shipDamageToPlayerBuildings = config("Damage", "Damage done to player buildings multiplier", defaultValue: 1.0f, "Set multiplier when ship damages player buildings");
 
             removeShipWithHammer = config("Misc", "Remove ship with hammer", defaultValue: false, "Ships become removable by hammer like good old times. Relog required on change.");
             preventDrowningNearTheShip = config("Misc", "Prevent drowning near the ship", defaultValue: true, "Prevents drowning if you are touching the ship");
@@ -297,14 +299,78 @@ namespace RockTheBoat
             }
         }
 
+        [HarmonyPatch(typeof(Ship), nameof(Ship.UpdateUpsideDmg))]
+        public static class Ship_UpdateUpsideDmg_PreventShipDamage
+        {
+            private static void Prefix(Ship __instance, ref float ___m_upsideDownDmg, ref float __state)
+            {
+                if (!modEnabled.Value) 
+                    return;
+
+                if (emptyShipDamageMultiplier.Value == 1.0f)
+                    return;
+
+                if (__instance.HasPlayerOnboard())
+                    return;
+
+                __state = ___m_upsideDownDmg;
+
+                ___m_upsideDownDmg *= emptyShipDamageMultiplier.Value;
+            }
+
+            private static void Postfix(Ship __instance, ref float ___m_upsideDownDmg, float __state)
+            {
+                if (!modEnabled.Value)
+                    return;
+
+                if (__state == 0f)
+                    return;
+
+                ___m_upsideDownDmg = __state;
+            }
+        }
+
+        [HarmonyPatch(typeof(Ship), nameof(Ship.UpdateWaterForce))]
+        public static class Ship_UpdateWaterForce_PreventShipDamage
+        {
+            private static void Prefix(Ship __instance, ref float ___m_waterImpactDamage, ref float __state)
+            {
+                if (!modEnabled.Value)
+                    return;
+
+                if (emptyShipDamageMultiplier.Value == 1.0f)
+                    return;
+
+                if (__instance.HasPlayerOnboard())
+                    return;
+
+                __state = ___m_waterImpactDamage;
+
+                ___m_waterImpactDamage *= emptyShipDamageMultiplier.Value;
+            }
+
+            private static void Postfix(Ship __instance, ref float ___m_waterImpactDamage, float __state)
+            {
+                if (!modEnabled.Value)
+                    return;
+
+                if (__state == 0f)
+                    return;
+
+                ___m_waterImpactDamage = __state;
+            }
+        }
+
         [HarmonyPatch(typeof(Player), nameof(Player.OnSwimming))]
         public class Player_OnSwimming_PreventDrowningNearTheShip
         {
             public static void Prefix(Player __instance, ref float ___m_drownDamageTimer)
             {
-                if (!modEnabled.Value) return;
+                if (!modEnabled.Value)
+                    return;
 
-                if (!preventDrowningNearTheShip.Value) return;
+                if (!preventDrowningNearTheShip.Value)
+                    return;
 
                 if (IsTouchingShip(__instance))
                     ___m_drownDamageTimer = 0f;
@@ -314,29 +380,37 @@ namespace RockTheBoat
         [HarmonyPatch(typeof(WearNTear), nameof(WearNTear.Damage))]
         public static class WearNTear_Damage_DamageTakenMultiplier
         {
-            private static void Prefix(WearNTear __instance, ref HitData hit, ZNetView ___m_nview)
+            private static void Prefix(WearNTear __instance, ref HitData hit, ZNetView ___m_nview, Piece ___m_piece)
             {
-                if (!modEnabled.Value) return;
-
-                if (___m_nview == null)
+                if (!modEnabled.Value)
                     return;
 
-                if (impactDamageMultiplier.Value == 1.0f && emptyShipDamageMultiplier.Value == 1.0f)
+                if (___m_nview == null || !___m_nview.IsValid())
                     return;
 
-                if (!__instance.TryGetComponent<Ship>(out Ship ship))
+                if (impactDamageMultiplier.Value == 1.0f && emptyShipDamageMultiplier.Value == 1.0f && shipDamageToPlayerBuildings.Value == 1.0f)
                     return;
 
-                if (hit.m_hitType == HitData.HitType.Boat && impactDamageMultiplier.Value != 1.0f)
+                if (__instance.TryGetComponent(out Ship ship))
                 {
-                    ModifyHitDamage(ref hit, impactDamageMultiplier.Value);
+                    if (hit.m_hitType == HitData.HitType.Boat && (impactDamageMultiplier.Value != 1.0f || emptyShipDamageMultiplier.Value != 1.0f))
+                    {
+                        if (ship.HasPlayerOnboard())
+                            ModifyHitDamage(ref hit, impactDamageMultiplier.Value);
+                        else
+                            ModifyHitDamage(ref hit, Mathf.Min(impactDamageMultiplier.Value, emptyShipDamageMultiplier.Value));
+                    }
+                    else if (hit.m_hitType != HitData.HitType.PlayerHit && emptyShipDamageMultiplier.Value != 1.0f && !ship.HasPlayerOnboard())
+                    {
+                        if (hit.HaveAttacker() && hit.GetAttacker().IsBoss())
+                            return;
+
+                        ModifyHitDamage(ref hit, emptyShipDamageMultiplier.Value);
+                    }
                 }
-                else if (hit.m_hitType != HitData.HitType.PlayerHit && emptyShipDamageMultiplier.Value != 1.0f && !ship.HasPlayerOnboard())
+                else if (hit.m_hitType == HitData.HitType.Boat && shipDamageToPlayerBuildings.Value != 1.0f && ___m_piece != null && ___m_piece.m_category == Piece.PieceCategory.Building && ___m_piece.IsPlacedByPlayer())
                 {
-                    if (hit.HaveAttacker() && hit.GetAttacker().IsBoss())
-                        return; 
-                    
-                    ModifyHitDamage(ref hit, emptyShipDamageMultiplier.Value);
+                    ModifyHitDamage(ref hit, shipDamageToPlayerBuildings.Value);
                 }
             }
         }
@@ -348,7 +422,7 @@ namespace RockTheBoat
             {
                 if (!modEnabled.Value) return;
 
-                if (___m_nview == null)
+                if (___m_nview == null || !___m_nview.IsValid())
                     return;
 
                 if (hit.HaveAttacker() && hit.GetAttacker().IsBoss())

@@ -38,6 +38,13 @@ https://valheim.thunderstore.io/package/Azumatt/Official_BepInEx_ConfigurationMa
 
 ## Changelog
 
+v 1.0.5
+* option to control damage to player buildings
+* emtpy ship damage multipliers now works on waterforce and upsidedown damage
+
+v 1.0.4
+* option to control impact damage
+
 v 1.0.2
 * patch 0.217.22, server sync fix
 
