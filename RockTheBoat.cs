@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using BepInEx;
-using BepInEx.Logging;
 using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
@@ -16,9 +15,9 @@ namespace RockTheBoat
     {
         const string pluginID = "shudnal.RockTheBoat";
         const string pluginName = "Rock the Boat";
-        const string pluginVersion = "1.0.5";
+        const string pluginVersion = "1.0.6";
 
-        private Harmony _harmony;
+        private readonly Harmony harmony = new Harmony(pluginID);
 
         internal static readonly ConfigSync configSync = new ConfigSync(pluginID) { DisplayName = pluginName, CurrentVersion = pluginVersion, MinimumRequiredVersion = pluginVersion };
 
@@ -46,24 +45,37 @@ namespace RockTheBoat
 
         private static ConfigEntry<bool> nitroEnabled;
 
+        private static ConfigEntry<bool> karveChangeProperties;
+        private static ConfigEntry<Vector2> karveInventorySize;
+
+        private static ConfigEntry<bool> longshipChangeProperties;
+        private static ConfigEntry<Vector2> longshipInventorySize;
+
+        private static ConfigEntry<bool> drakkarChangeProperties;
+        private static ConfigEntry<Vector2> drakkarInventorySize;
+
         internal static float nitroDownTime;
         internal static bool nitroStaminaDepleted;
 
         internal static RockTheBoat instance;
+
         private void Awake()
         {
-            _harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), pluginID);
+            harmony.PatchAll();
 
             instance = this;
 
             ConfigInit();
             _ = configSync.AddLockingConfigEntry(configLocked);
+
+            Game.isModded = true;
         }
 
         private void OnDestroy()
         {
             Config.Save();
-            _harmony?.UnpatchSelf();
+            instance = null;
+            harmony?.UnpatchSelf();
         }
 
         public static void LogInfo(object data)
@@ -83,6 +95,8 @@ namespace RockTheBoat
             cameraMaxDistanceOnBoat = config("Camera", "Max distance on boat", defaultValue: 16f, "Maximum camera distance while attached to boat");
             cameraSetMaxDistanceOnShip = config("Camera", "Set max distance on boat", defaultValue: true, "Set boat camera distance while you attached to boat whether or not you are controlling the ship");
 
+            cameraMaxDistanceOnBoat.SettingChanged += (sender, args) => PatchCameraDistance();
+
             exploreRadiusMultiplier = config("Minimap", "Explore radius multiplier", defaultValue: 1.0f, "Set multiplier for map explore radius while you are on boat");
 
             playerDamageTakenMultiplier = config("Damage", "Player damage taken multiplier", defaultValue: 1.0f, "Damage taken by players on board from creatures");
@@ -97,6 +111,8 @@ namespace RockTheBoat
             backwardSpeedMultiplier = config("Speed", "Backward speed multiplier", defaultValue: 1.0f, "Basic backward force factor applied to the back speed of steering");
             steeringSpeedMultiplier = config("Speed", "Steering speed multiplier", defaultValue: 1.0f, "Basic steering force factor applied to the forward speed of steering");
             nitroEnabled = config("Speed", "Use stamina to boost steering speed", defaultValue: true, "Press Run button to boost steering. Stamina will be depleting.");
+
+            
         }
 
         private static bool IsTouchingShip(Player player)
@@ -126,35 +142,47 @@ namespace RockTheBoat
 
         ConfigEntry<T> config<T>(string group, string name, T defaultValue, string description, bool synchronizedSetting = true) => config(group, name, defaultValue, new ConfigDescription(description), synchronizedSetting);
 
+        internal static void PatchCameraDistance()
+        {
+            if (!modEnabled.Value)
+                return;
+
+            if (GameCamera.instance == null)
+                return;
+
+            if (cameraMaxDistanceOnBoat.Value > 0)
+                GameCamera.instance.m_maxDistanceBoat = cameraMaxDistanceOnBoat.Value;
+        }
+
+        internal static void PatchShipProperties(Ship ship)
+        {
+            string prefabName = Utils.GetPrefabName(ship.name);
+
+        }
+
         [HarmonyPatch(typeof(GameCamera), nameof(GameCamera.Awake))]
-        public class GameCamera_Awake_CameraSettings
+        public static class GameCamera_Awake_CameraSettings
         {
             public static void Postfix()
             {
-                if (!modEnabled.Value) return;
-
-                if (cameraMaxDistanceOnBoat.Value > 0)
-                    GameCamera.instance.m_maxDistanceBoat = cameraMaxDistanceOnBoat.Value;
+                PatchCameraDistance();
             }
         }
         
         [HarmonyPatch(typeof(GameCamera), nameof(GameCamera.UpdateCamera))]
-        public class GameCamera_UpdateCamera_MaxDistanceOnBoat
+        public static class GameCamera_UpdateCamera_MaxDistanceOnBoat
         {
             [HarmonyPriority(Priority.Last)]
             public static void Prefix(GameCamera __instance, ref float __state)
             {
-                if (!modEnabled.Value) return;
-
-                if (!cameraSetMaxDistanceOnShip.Value) return;
-
-                Player localPlayer = Player.m_localPlayer;
-                if (!localPlayer)
-                {
+                if (!modEnabled.Value)
                     return;
-                }
 
-                if (!localPlayer.IsAttachedToShip()) return;
+                if (!cameraSetMaxDistanceOnShip.Value)
+                    return;
+
+                if (Player.m_localPlayer == null || !Player.m_localPlayer.IsAttachedToShip())
+                    return;
 
                 __state = __instance.m_maxDistance;
 
@@ -162,26 +190,17 @@ namespace RockTheBoat
             }
 
             [HarmonyPriority(Priority.First)]
-            public static void Postfix(GameCamera __instance, ref float __state)
+            public static void Postfix(GameCamera __instance, float __state)
             {
-                if (!modEnabled.Value) return;
-
-                if (!cameraSetMaxDistanceOnShip.Value) return;
-
-                Player localPlayer = Player.m_localPlayer;
-                if (!localPlayer)
-                {
+                if (__state == 0f)
                     return;
-                }
-
-                if (!localPlayer.IsAttachedToShip()) return;
 
                 __instance.m_maxDistance = __state;
             }
         }
 
         [HarmonyPatch(typeof(Minimap), nameof(Minimap.UpdateExplore))]
-        public class Minimap_UpdateExplore_ExploreRadiusOnBoat
+        public static class Minimap_UpdateExplore_ExploreRadiusOnBoat
         {
             [HarmonyPriority(Priority.Last)]
             public static void Prefix(Minimap __instance, Player player, ref float __state)
@@ -195,7 +214,6 @@ namespace RockTheBoat
                     __state = __instance.m_exploreRadius;
                     __instance.m_exploreRadius *= exploreRadiusMultiplier.Value;
                 }
-
             }
 
             [HarmonyPriority(Priority.First)]
@@ -213,7 +231,7 @@ namespace RockTheBoat
         }
 
         [HarmonyPatch(typeof(Piece), nameof(Piece.Awake))]
-        public class Piece_Awake_ShipRemovableByHammer
+        public static class Piece_Awake_ShipRemovableByHammer
         {
             public static void Postfix(Piece __instance)
             {
@@ -232,19 +250,24 @@ namespace RockTheBoat
         }
 
         [HarmonyPatch(typeof(Ship), nameof(Ship.CustomFixedUpdate))]
-        public class Ship_CustomFixedUpdate_ShipSpeed
+        public static class Ship_CustomFixedUpdate_ShipSpeed
         {
-            [HarmonyPriority(Priority.Last)]
-            public static void Prefix(Ship __instance, ref Dictionary<string, float> __state)
+            public static Dictionary<string, float> state = new Dictionary<string, float>
             {
-                if (!modEnabled.Value) return;
+                { "m_sailForceFactor", 0f },
+                { "m_backwardForce", 0f },
+                { "m_stearVelForceFactor", 0f }
+            };
 
-                __state = new Dictionary<string, float>
-                {
-                    { "m_sailForceFactor", __instance.m_sailForceFactor },
-                    { "m_backwardForce", __instance.m_backwardForce },
-                    { "m_stearVelForceFactor", __instance.m_stearVelForceFactor }
-                };
+            [HarmonyPriority(Priority.Last)]
+            public static void Prefix(Ship __instance)
+            {
+                if (!modEnabled.Value)
+                    return;
+
+                state["m_sailForceFactor"] = __instance.m_sailForceFactor;
+                state["m_backwardForce"] = __instance.m_backwardForce;
+                state["m_stearVelForceFactor"] = __instance.m_stearVelForceFactor;
 
                 __instance.m_sailForceFactor *= sailingSpeedMultiplier.Value;
                 __instance.m_backwardForce *= backwardSpeedMultiplier.Value;
@@ -289,13 +312,14 @@ namespace RockTheBoat
             }
 
             [HarmonyPriority(Priority.First)]
-            public static void Postfix(Ship __instance, Dictionary<string, float> __state)
+            public static void Postfix(Ship __instance)
             {
-                if (!modEnabled.Value) return;
+                if (!modEnabled.Value)
+                    return;
 
-                __instance.m_sailForceFactor = __state["m_sailForceFactor"];
-                __instance.m_backwardForce = __state["m_backwardForce"];
-                __instance.m_stearVelForceFactor = __state["m_stearVelForceFactor"];
+                __instance.m_sailForceFactor = state["m_sailForceFactor"];
+                __instance.m_backwardForce = state["m_backwardForce"];
+                __instance.m_stearVelForceFactor = state["m_stearVelForceFactor"];
             }
         }
 
@@ -362,7 +386,7 @@ namespace RockTheBoat
         }
 
         [HarmonyPatch(typeof(Player), nameof(Player.OnSwimming))]
-        public class Player_OnSwimming_PreventDrowningNearTheShip
+        public static class Player_OnSwimming_PreventDrowningNearTheShip
         {
             public static void Prefix(Player __instance, ref float ___m_drownDamageTimer)
             {
@@ -408,7 +432,7 @@ namespace RockTheBoat
                         ModifyHitDamage(ref hit, emptyShipDamageMultiplier.Value);
                     }
                 }
-                else if (hit.m_hitType == HitData.HitType.Boat && shipDamageToPlayerBuildings.Value != 1.0f && ___m_piece != null && ___m_piece.m_category == Piece.PieceCategory.Building && ___m_piece.IsPlacedByPlayer())
+                else if (hit.m_hitType == HitData.HitType.Boat && shipDamageToPlayerBuildings.Value != 1.0f && ___m_piece != null && ___m_piece.IsPlacedByPlayer())
                 {
                     ModifyHitDamage(ref hit, shipDamageToPlayerBuildings.Value);
                 }

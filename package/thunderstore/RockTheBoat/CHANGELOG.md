@@ -1,5 +1,4 @@
 # 1.0.6
-* option to control ship size
 * option to control ship container size
 
 # 1.0.5
