@@ -363,3 +363,5 @@ MigrationBackup/
 FodyWeavers.xsd
 /thunderstore/RockTheBoat.dll
 /thunderstore/RockTheBoat.zip
+/package/thunderstore/RockTheBoat/RockTheBoat.dll
+/package/thunderstore/RockTheBoat.zip

@@ -1,7 +1,7 @@
 ![](https://staticdelivery.nexusmods.com/mods/3667/images/headers/2525_1694750230.jpg)
 
 # Rock the Boat
-Tinker your ship. Nothing serious but QoL.
+Tinker your ship. Camera distance, explore radius, various damage multipliers, ship size, speed, container size.
 
 ## Features
 * Change max camera distance for boat
@@ -12,6 +12,8 @@ Tinker your ship. Nothing serious but QoL.
 * Reduced damage to players on boat
 * Reduced damage to boat when no one are on board
 * Sailing and steering force multipliers
+* Ship size multiplier
+* Ship container size multiplier
 * Configuration is server-synced
 * NITRO
 
@@ -24,30 +26,9 @@ extract RockTheBoat.dll file to your BepInEx\Plugins\ folder
 * Mod should be compatible with ValheimRaft and any other mod changing boat behavior.
 
 ## Configurating
-The best way to handle configs is configuration manager. Choose one that works for you:
+The best way to handle configs is [Configuration Manager](https://thunderstore.io/c/valheim/p/shudnal/ConfigurationManager/).
 
-https://www.nexusmods.com/site/mods/529
-
-https://valheim.thunderstore.io/package/Azumatt/Official_BepInEx_ConfigurationManager/
+Or [Official BepInEx Configuration Manager](https://valheim.thunderstore.io/package/Azumatt/Official_BepInEx_ConfigurationManager/).
 
 ## Mirrors
-
 [Nexus](https://www.nexusmods.com/valheim/mods/2525)
-
-## Changelog
-
-v 1.0.5
-* option to control damage to player buildings
-* emtpy ship damage multipliers now works on waterforce and upsidedown damage
-
-v 1.0.4
-* option to control impact damage
-
-v 1.0.2
-* patch 0.217.22, server sync fix
-
-v 1.0.1
-* patch 0.217.22
-
-v 1.0.0
-* Initial release
