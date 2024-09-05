@@ -12,7 +12,7 @@ Tinker your ship. Camera distance, explore radius, various damage multipliers, s
 * Reduced damage to players on boat
 * Reduced damage to boat when no one are on board
 * Sailing and steering force multipliers
-* Ship container size multiplier
+* Rowing support, other players sat on a boat will benefit in steering and paddling force
 * Configuration is server-synced
 * NITRO
 

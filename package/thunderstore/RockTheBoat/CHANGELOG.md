@@ -1,5 +1,5 @@
 # 1.0.6
-* option to control ship container size
+* rowing support, other players sit on a boat will benefit in steering and paddling force
 
 # 1.0.5
 * option to control damage to player buildings
