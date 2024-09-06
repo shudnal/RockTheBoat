@@ -1,5 +1,5 @@
 # 1.0.6
-* rowing support, other players sit on a boat will benefit in steering and paddling force
+* rowing support, other players sat on a boat will benefit in steering and paddling force
 
 # 1.0.5
 * option to control damage to player buildings
