@@ -13,7 +13,7 @@ namespace RockTheBoat
     {
         const string pluginID = "shudnal.RockTheBoat";
         const string pluginName = "Rock the Boat";
-        const string pluginVersion = "1.0.6";
+        const string pluginVersion = "1.0.7";
 
         private readonly Harmony harmony = new Harmony(pluginID);
 

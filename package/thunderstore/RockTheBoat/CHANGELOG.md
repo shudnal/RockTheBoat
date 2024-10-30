@@ -1,3 +1,6 @@
+# 1.0.7
+* bog witch
+
 # 1.0.6
 * rowing support, other players sat on a boat will benefit in steering and paddling force
 
