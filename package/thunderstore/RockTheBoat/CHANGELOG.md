@@ -1,3 +1,7 @@
+# 1.0.8
+* rowing power for sitting players increased by default but its power is not affected by nitro
+* fixed nitro not activating if controlling player is not owner if ship simulation
+
 # 1.0.7
 * bog witch
 

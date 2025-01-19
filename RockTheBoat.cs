@@ -11,9 +11,9 @@ namespace RockTheBoat
     [BepInPlugin(pluginID, pluginName, pluginVersion)]
     public class RockTheBoat : BaseUnityPlugin
     {
-        const string pluginID = "shudnal.RockTheBoat";
-        const string pluginName = "Rock the Boat";
-        const string pluginVersion = "1.0.7";
+        public const string pluginID = "shudnal.RockTheBoat";
+        public const string pluginName = "Rock the Boat";
+        public const string pluginVersion = "1.0.8";
 
         private readonly Harmony harmony = new Harmony(pluginID);
 
@@ -102,13 +102,13 @@ namespace RockTheBoat
             backwardSpeedMultiplier = config("Speed", "Backward speed multiplier", defaultValue: 1.0f, "Paddling force applied to ship when sails is down");
             steeringSpeedMultiplier = config("Speed", "Steering speed multiplier", defaultValue: 1.0f, "Speed of steering (direction change) that depends on forward speed, faster you move faster you steer.");
             paddlingSteerSpeedMultiplier = config("Speed", "Steering paddling speed multiplier", defaultValue: 1.0f, "Speed of steering (direction change) when paddling, independent of forward speed.");
-            perRowerSpeedMultiplier = config("Speed", "Paddling force per rower multiplier", defaultValue: 0.25f, "Speed of paddling (forward and steering) added per every other player attached to the ship.");
+            perRowerSpeedMultiplier = config("Speed", "Paddling force per rower multiplier", defaultValue: 1.0f, "Speed of paddling (forward and steering) added per every other player attached to the ship.");
             nitroEnabled = config("Speed", "Use stamina to boost steering speed", defaultValue: true, "Press Run button to boost steering. Stamina will be depleting.");
         }
 
         private static bool IsTouchingShip()
         {
-            return Ship.GetLocalShip() != null;
+            return Ship.GetLocalShip() != null || Player.m_localPlayer.IsAttachedToShip();
         }
 
         private static bool IsValheimRaftShip(Ship ship)
@@ -145,12 +145,6 @@ namespace RockTheBoat
                 GameCamera.instance.m_maxDistanceBoat = cameraMaxDistanceOnBoat.Value;
         }
 
-        internal static void PatchShipProperties(Ship ship)
-        {
-            string prefabName = Utils.GetPrefabName(ship.gameObject);
-
-        }
-
         [HarmonyPatch(typeof(GameCamera), nameof(GameCamera.Awake))]
         public static class GameCamera_Awake_CameraSettings
         {
@@ -172,12 +166,11 @@ namespace RockTheBoat
                 if (!cameraSetMaxDistanceOnShip.Value)
                     return;
 
-                if (Player.m_localPlayer == null || !Player.m_localPlayer.IsAttachedToShip())
-                    return;
-
-                __state = __instance.m_maxDistance;
-
-                __instance.m_maxDistance = __instance.m_maxDistanceBoat;
+                if (Player.m_localPlayer != null && (Player.m_localPlayer.IsAttachedToShip() || Ship.GetLocalShip()))
+                {
+                    __state = __instance.m_maxDistance;
+                    __instance.m_maxDistance = __instance.m_maxDistanceBoat;
+                }
             }
 
             [HarmonyPriority(Priority.First)]
@@ -220,15 +213,17 @@ namespace RockTheBoat
         {
             public static void Postfix(Piece __instance)
             {
-                if (!modEnabled.Value) return;
+                if (!modEnabled.Value)
+                    return;
 
-                if (__instance.m_canBeRemoved) return;
+                if (__instance.m_canBeRemoved)
+                    return;
 
-                if (!removeShipWithHammer.Value) return;
+                if (!removeShipWithHammer.Value)
+                    return;
 
-                Ship componentInChildren = __instance.GetComponentInChildren<Ship>();
-
-                if (componentInChildren == null || IsValheimRaftShip(componentInChildren)) return;
+                if (__instance.GetComponentInParent<Ship>() is not Ship ship || IsValheimRaftShip(ship))
+                    return;
 
                 __instance.m_canBeRemoved = true;
             }
@@ -258,14 +253,26 @@ namespace RockTheBoat
                 }
             }
 
+            private static bool IsNitroButtonPressed() => ZInput.GetButton("Run") || ZInput.GetButton("JoyRun");
+
             [HarmonyPriority(Priority.Last)]
-            public static void Prefix(Ship __instance, float fixedDeltaTime)
+            public static void Prefix(Ship __instance, float fixedDeltaTime, ref bool __state)
             {
                 if (!modEnabled.Value)
                     return;
 
-                if ((bool)__instance.m_nview && !__instance.m_nview.IsOwner())
+                if (!(bool)__instance.m_nview || !__instance.m_nview.IsValid())
                     return;
+
+                if (!__instance.m_nview.IsOwner())
+                {
+                    if (IsNitroButtonPressed() && (__instance.GetComponentInChildren<Container>() is not Container container || !container.IsInUse()))
+                        __instance.m_nview.ClaimOwnership();
+
+                    return;
+                }
+
+                __state = true;
 
                 m_sailForceFactor = __instance.m_sailForceFactor;
                 m_backwardForce = __instance.m_backwardForce;
@@ -277,17 +284,13 @@ namespace RockTheBoat
                 __instance.m_stearVelForceFactor *= steeringSpeedMultiplier.Value; // Steering speed, amount of angle change per fixed frame, wind and paddling
                 __instance.m_stearForce *= paddlingSteerSpeedMultiplier.Value; // Steering speed (paddling only)
 
-                int rowersCount = __instance.m_players.Count(player => player.IsAttachedToShip() && player.GetControlledShip() != __instance);
-                __instance.m_stearForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
-                __instance.m_backwardForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
-
                 if (nitroEnabled.Value && Player.m_localPlayer != null && Player.m_localPlayer.GetControlledShip() == __instance)
                 {
                     nitroStaminaDepleted = nitroStaminaDepleted || !Player.m_localPlayer.HaveStamina();
 
-                    bool nitro = ZInput.GetButton("Run") || ZInput.GetButton("JoyRun");
+                    bool nitro = IsNitroButtonPressed();
                     if (nitro)
-                        nitroDownTime += (fixedDeltaTime * 1.25f);
+                        nitroDownTime += fixedDeltaTime * 1.25f;
                     else
                     {
                         nitroDownTime = 0f;
@@ -301,15 +304,16 @@ namespace RockTheBoat
 
                     DepleteShipRunStamina(Player.m_localPlayer, shift > 1, fixedDeltaTime);
                 }
+
+                int rowersCount = __instance.m_players.Count(player => player.IsAttachedToShip() && player.GetControlledShip() != __instance);
+                __instance.m_stearForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
+                __instance.m_backwardForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
             }
 
             [HarmonyPriority(Priority.First)]
-            public static void Postfix(Ship __instance)
+            public static void Postfix(Ship __instance, bool __state)
             {
-                if (!modEnabled.Value)
-                    return;
-
-                if ((bool)__instance.m_nview && !__instance.m_nview.IsOwner())
+                if (!__state)
                     return;
 
                 __instance.m_sailForceFactor = m_sailForceFactor;
