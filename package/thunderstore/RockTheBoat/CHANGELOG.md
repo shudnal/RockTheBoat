@@ -1,3 +1,7 @@
+# 1.0.10
+* shift boost was rewritten
+* new little visual fov effect for shift acceleration
+
 # 1.0.9
 * patch 0.220.3
 * ServerSync updated

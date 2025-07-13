@@ -13,7 +13,7 @@ namespace RockTheBoat
     {
         public const string pluginID = "shudnal.RockTheBoat";
         public const string pluginName = "Rock the Boat";
-        public const string pluginVersion = "1.0.9";
+        public const string pluginVersion = "1.0.10";
 
         private readonly Harmony harmony = new Harmony(pluginID);
 
@@ -45,8 +45,11 @@ namespace RockTheBoat
 
         private static ConfigEntry<bool> nitroEnabled;
 
-        internal static float nitroDownTime;
+        internal static bool nitroButtonPressed;
+        internal static float nitroAmount;
         internal static bool nitroStaminaDepleted;
+
+        internal static readonly int s_nitroSpeed = "RTB_NitroSpeed".GetStableHashCode();
 
         internal static RockTheBoat instance;
 
@@ -264,14 +267,6 @@ namespace RockTheBoat
                 if (!(bool)__instance.m_nview || !__instance.m_nview.IsValid())
                     return;
 
-                if (!__instance.m_nview.IsOwner())
-                {
-                    if (IsNitroButtonPressed() && (__instance.GetComponentInChildren<Container>() is not Container container || !container.IsInUse()))
-                        __instance.m_nview.ClaimOwnership();
-
-                    return;
-                }
-
                 __state = true;
 
                 m_sailForceFactor = __instance.m_sailForceFactor;
@@ -279,35 +274,39 @@ namespace RockTheBoat
                 m_stearVelForceFactor = __instance.m_stearVelForceFactor;
                 m_stearForce = __instance.m_stearForce;
 
-                __instance.m_sailForceFactor *= sailingSpeedMultiplier.Value; // Wind force 
-                __instance.m_backwardForce *= backwardSpeedMultiplier.Value; // Paddling force
-                __instance.m_stearVelForceFactor *= steeringSpeedMultiplier.Value; // Steering speed, amount of angle change per fixed frame, wind and paddling
-                __instance.m_stearForce *= paddlingSteerSpeedMultiplier.Value; // Steering speed (paddling only)
+                ZDO zdo = __instance.m_nview.GetZDO();
+                float shift = zdo.GetFloat(s_nitroSpeed, 1f);
 
+                __instance.m_sailForceFactor *= sailingSpeedMultiplier.Value; // Wind force 
+                __instance.m_stearVelForceFactor *= steeringSpeedMultiplier.Value; // Steering speed, amount of angle change per fixed frame, wind and paddling
+                __instance.m_backwardForce *= backwardSpeedMultiplier.Value * shift; // Paddling force
+                __instance.m_stearForce *= paddlingSteerSpeedMultiplier.Value * shift; // Steering speed (paddling only)
+
+                nitroButtonPressed = IsNitroButtonPressed();
                 if (nitroEnabled.Value && Player.m_localPlayer != null && Player.m_localPlayer.GetControlledShip() == __instance)
                 {
                     nitroStaminaDepleted = nitroStaminaDepleted || !Player.m_localPlayer.HaveStamina();
 
-                    bool nitro = IsNitroButtonPressed();
-                    if (nitro)
-                        nitroDownTime += fixedDeltaTime * 1.25f;
+                    if (nitroButtonPressed)
+                        nitroAmount = Mathf.MoveTowards(nitroAmount, 1f, fixedDeltaTime * 0.5f);
                     else
                     {
-                        nitroDownTime = 0f;
+                        nitroAmount = Mathf.MoveTowards(nitroAmount, 0f, fixedDeltaTime * 2f);
                         nitroStaminaDepleted = false;
                     }
 
-                    float shift = nitro && !nitroStaminaDepleted ? 1.5f + Mathf.Min(1f, nitroDownTime / 5) : 1;
-
-                    __instance.m_backwardForce *= shift;
-                    __instance.m_stearForce *= shift;
+                    if (shift != (shift = nitroButtonPressed && !nitroStaminaDepleted ? 1.5f + nitroAmount : 1))
+                        SetNitroSpeed(zdo, shift);
 
                     DepleteShipRunStamina(Player.m_localPlayer, shift > 1, fixedDeltaTime);
                 }
 
-                int rowersCount = __instance.m_players.Count(player => player.IsAttachedToShip() && player.GetControlledShip() != __instance);
-                __instance.m_stearForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
-                __instance.m_backwardForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
+                if (perRowerSpeedMultiplier.Value != 1f)
+                {
+                    int rowersCount = __instance.m_players.Count(player => player.IsAttachedToShip() && player.GetControlledShip() != __instance);
+                    __instance.m_stearForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
+                    __instance.m_backwardForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
+                }
             }
 
             [HarmonyPriority(Priority.First)]
@@ -452,6 +451,79 @@ namespace RockTheBoat
 
                 if (Player.m_localPlayer == __instance && IsTouchingShip() && (!hit.HaveAttacker() || !hit.GetAttacker().IsBoss()))
                     ModifyHitDamage(ref hit, playerDamageTakenMultiplier.Value);
+            }
+        }
+
+        [HarmonyPatch(typeof(ZoneSystem), nameof(ZoneSystem.Start))]
+        public static class ZoneSystem_Start_RegisterRPC
+        {
+            private static void Postfix()
+            {
+                ZRoutedRpc.instance.Register<ZDOID, float>("RPC_RTB_SetNitroSpeed", RPC_RTB_SetNitroSpeed);
+            }
+        }
+
+        public static void RPC_RTB_SetNitroSpeed(long sender, ZDOID targetZDO, float nitroSpeed)
+        {
+            if (targetZDO.IsNone())
+                return;
+
+            if (ZDOMan.instance.GetZDO(targetZDO) is ZDO zDO && ZNetScene.instance.FindInstance(zDO) is ZNetView zNetView && zNetView != null && zNetView.IsValid() && zNetView.IsOwner())
+                SetNitroSpeedValue(zDO, nitroSpeed);
+        }
+
+        public static void SetNitroSpeedValue(ZDO zDO, float nitroSpeed) => zDO.Set(s_nitroSpeed, nitroSpeed);
+
+        public static void SetNitroSpeed(ZDO zdo, float shift)
+        {
+            if (zdo == null)
+                return;
+
+            if (zdo.IsOwner())
+                SetNitroSpeedValue(zdo, shift);
+            else
+                ZRoutedRpc.instance.InvokeRoutedRPC(zdo.GetOwner(), "RPC_RTB_SetNitroSpeed", zdo.m_uid, shift);
+        }
+
+        [HarmonyPatch(typeof(GameCamera), nameof(GameCamera.UpdateCamera))]
+        public static class GameCamera_UpdateCamera_NitroFOV
+        {
+            [HarmonyPriority(Priority.Last)]
+            private static void Prefix(GameCamera __instance, ref float __state)
+            {
+                __state = __instance.m_fov;
+
+                if (__instance.m_freeFly)
+                    return;
+
+                if (nitroEnabled.Value && nitroAmount > 0f && Player.m_localPlayer != null && Player.m_localPlayer.GetControlledShip() is not null)
+                {
+                    __state = __instance.m_fov;
+                    __instance.m_fov *= 1f + nitroAmount * 0.2f;
+                }
+            }
+
+            [HarmonyPriority(Priority.First)]
+            private static void Postfix(GameCamera __instance, float __state)
+            {
+                __instance.m_fov = __state;
+            }
+        }
+
+        [HarmonyPatch(typeof(Player), nameof(Player.StartDoodadControl))]
+        public static class Player_StartDoodadControl_ResetNitro
+        {
+            private static void Postfix(Player __instance)
+            {
+                if (Player.m_localPlayer != __instance)
+                    return;
+
+                if (__instance.GetControlledShip() is not Ship ship)
+                    return;
+
+                nitroAmount = 0f;
+                nitroStaminaDepleted = false;
+                SetNitroSpeed(ship.m_nview?.GetZDO(), 0f);
             }
         }
     }

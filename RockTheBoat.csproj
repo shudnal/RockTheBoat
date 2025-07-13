@@ -80,9 +80,6 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="Libs\ServerSync.dll" />
-  </ItemGroup>
-  <ItemGroup>
     <None Include="ILRepack.targets" />
     <None Include="packages.config" />
   </ItemGroup>
