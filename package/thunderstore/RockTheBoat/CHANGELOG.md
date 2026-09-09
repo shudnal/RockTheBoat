@@ -1,3 +1,8 @@
+# 1.0.11
+* Updated for the Valheim 1.0.7 release.
+* Migrated configuration registration and synchronization to the standalone ConditionalConfigSync dependency.
+* Updated required dependencies to BepInExPack Valheim 5.4.2350 and ConditionalConfigSync 1.0.5.
+
 # 1.0.10
 * shift boost was rewritten
 * new little visual fov effect for shift acceleration
