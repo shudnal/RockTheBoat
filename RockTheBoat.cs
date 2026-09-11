@@ -14,7 +14,7 @@ namespace RockTheBoat
     {
         public const string pluginID = "shudnal.RockTheBoat";
         public const string pluginName = "Rock the Boat";
-        public const string pluginVersion = "1.0.11";
+        public const string pluginVersion = "1.0.12";
 
         private readonly Harmony harmony = new Harmony(pluginID);
 
@@ -56,12 +56,11 @@ namespace RockTheBoat
 
         private void Awake()
         {
-            harmony.PatchAll();
-
             instance = this;
 
             ConfigInit();
             _ = configSync.AddLockingConfigEntry(configLocked);
+            harmony.PatchAll();
 
             Game.isModded = true;
         }
@@ -234,57 +233,51 @@ namespace RockTheBoat
         [HarmonyPatch(typeof(Ship), nameof(Ship.CustomFixedUpdate))]
         public static class Ship_CustomFixedUpdate_ShipSpeed
         {
-            public static float m_sailForceFactor;
-            public static float m_backwardForce;
-            public static float m_stearVelForceFactor;
-            public static float m_stearForce;
+            public struct ForceState
+            {
+                public bool Applied;
+                public float Sail;
+                public float Backward;
+                public float Steering;
+                public float Paddling;
+            }
 
             private static void DepleteShipRunStamina(Player player, bool checkRun, float dt)
             {
                 if (!checkRun)
                     return;
 
-                bool flag = player.HaveStamina();
-
+                bool hadStamina = player.HaveStamina();
                 player.UseStamina(dt * 15f * Game.m_moveStaminaRate);
-
-                if (flag && !player.HaveStamina())
+                if (hadStamina && !player.HaveStamina())
                 {
                     nitroStaminaDepleted = true;
-                    Hud.instance.StaminaBarEmptyFlash();
+                    if (Hud.instance)
+                        Hud.instance.StaminaBarEmptyFlash();
                 }
             }
 
-            private static bool IsNitroButtonPressed() => ZInput.GetButton("Run") || ZInput.GetButton("JoyRun");
-
             [HarmonyPriority(Priority.Last)]
-            public static void Prefix(Ship __instance, float fixedDeltaTime, ref bool __state)
+            public static void Prefix(Ship __instance, float fixedDeltaTime, out ForceState __state)
             {
-                if (!modEnabled.Value)
+                __state = default;
+                if (!modEnabled.Value || !__instance.m_nview || !__instance.m_nview.IsValid())
                     return;
 
-                if (!(bool)__instance.m_nview || !__instance.m_nview.IsValid())
+                Player player = Player.m_localPlayer;
+                bool controlsShip = player && player.GetControlledShip() == __instance;
+                bool isOwner = __instance.m_nview.IsOwner();
+                // Remote replicas do not integrate ship forces. The helmsman must still send
+                // boost input when another peer owns the ship, so handle that before returning.
+                if (!isOwner && !controlsShip)
                     return;
-
-                __state = true;
-
-                m_sailForceFactor = __instance.m_sailForceFactor;
-                m_backwardForce = __instance.m_backwardForce;
-                m_stearVelForceFactor = __instance.m_stearVelForceFactor;
-                m_stearForce = __instance.m_stearForce;
 
                 ZDO zdo = __instance.m_nview.GetZDO();
-                float shift = zdo.GetFloat(s_nitroSpeed, 1f);
-
-                __instance.m_sailForceFactor *= sailingSpeedMultiplier.Value; // Wind force 
-                __instance.m_stearVelForceFactor *= steeringSpeedMultiplier.Value; // Steering speed, amount of angle change per fixed frame, wind and paddling
-                __instance.m_backwardForce *= backwardSpeedMultiplier.Value * shift; // Paddling force
-                __instance.m_stearForce *= paddlingSteerSpeedMultiplier.Value * shift; // Steering speed (paddling only)
-
-                nitroButtonPressed = IsNitroButtonPressed();
-                if (nitroEnabled.Value && Player.m_localPlayer != null && Player.m_localPlayer.GetControlledShip() == __instance)
+                float shift = nitroEnabled.Value ? zdo.GetFloat(s_nitroSpeed, 1f) : 1f;
+                if (nitroEnabled.Value && controlsShip)
                 {
-                    nitroStaminaDepleted = nitroStaminaDepleted || !Player.m_localPlayer.HaveStamina();
+                    nitroButtonPressed = ZInput.GetButton("Run") || ZInput.GetButton("JoyRun");
+                    nitroStaminaDepleted = nitroStaminaDepleted || !player.HaveStamina();
 
                     if (nitroButtonPressed)
                         nitroAmount = Mathf.MoveTowards(nitroAmount, 1f, fixedDeltaTime * 0.5f);
@@ -294,30 +287,67 @@ namespace RockTheBoat
                         nitroStaminaDepleted = false;
                     }
 
-                    if (shift != (shift = nitroButtonPressed && !nitroStaminaDepleted ? 1.5f + nitroAmount : 1))
-                        SetNitroSpeed(zdo, shift);
+                    float requestedShift = nitroButtonPressed && !nitroStaminaDepleted ? 1.5f + nitroAmount : 1f;
+                    if (shift != requestedShift)
+                        SetNitroSpeed(zdo, requestedShift);
 
-                    DepleteShipRunStamina(Player.m_localPlayer, shift > 1, fixedDeltaTime);
+                    DepleteShipRunStamina(player, requestedShift > 1f, fixedDeltaTime);
                 }
 
-                if (perRowerSpeedMultiplier.Value != 1f)
+                if (!isOwner)
+                    return;
+
+                float sail = sailingSpeedMultiplier.Value;
+                float steering = steeringSpeedMultiplier.Value;
+                float paddling = paddlingSteerSpeedMultiplier.Value * shift;
+                float backward = backwardSpeedMultiplier.Value * shift;
+                float perRower = perRowerSpeedMultiplier.Value;
+                if (perRower != 1f && __instance.m_players.Count > 0)
                 {
-                    int rowersCount = __instance.m_players.Count(player => player.IsAttachedToShip() && player.GetControlledShip() != __instance);
-                    __instance.m_stearForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
-                    __instance.m_backwardForce *= 1f + perRowerSpeedMultiplier.Value * rowersCount;
+                    int rowers = 0;
+                    for (int i = 0; i < __instance.m_players.Count; i++)
+                    {
+                        Player rower = __instance.m_players[i];
+                        if (rower && rower.IsAttachedToShip() && rower.GetControlledShip() != __instance)
+                            rowers++;
+                    }
+                    float multiplier = 1f + perRower * rowers;
+                    paddling *= multiplier;
+                    backward *= multiplier;
                 }
+
+                if (sail == 1f && steering == 1f && paddling == 1f && backward == 1f)
+                    return;
+
+                __state = new ForceState
+                {
+                    Applied = true,
+                    Sail = __instance.m_sailForceFactor,
+                    Backward = __instance.m_backwardForce,
+                    Steering = __instance.m_stearVelForceFactor,
+                    Paddling = __instance.m_stearForce
+                };
+                __instance.m_sailForceFactor *= sail;
+                __instance.m_stearVelForceFactor *= steering;
+                __instance.m_backwardForce *= backward;
+                __instance.m_stearForce *= paddling;
             }
 
             [HarmonyPriority(Priority.First)]
-            public static void Postfix(Ship __instance, bool __state)
+            public static void Postfix(Ship __instance, ref ForceState __state) => Restore(__instance, ref __state);
+
+            private static void Finalizer(Ship __instance, ref ForceState __state) => Restore(__instance, ref __state);
+
+            private static void Restore(Ship ship, ref ForceState state)
             {
-                if (!__state)
+                if (!state.Applied)
                     return;
 
-                __instance.m_sailForceFactor = m_sailForceFactor;
-                __instance.m_backwardForce = m_backwardForce;
-                __instance.m_stearVelForceFactor = m_stearVelForceFactor;
-                __instance.m_stearForce = m_stearForce;
+                state.Applied = false;
+                ship.m_sailForceFactor = state.Sail;
+                ship.m_backwardForce = state.Backward;
+                ship.m_stearVelForceFactor = state.Steering;
+                ship.m_stearForce = state.Paddling;
             }
         }
 
@@ -522,7 +552,7 @@ namespace RockTheBoat
 
                 nitroAmount = 0f;
                 nitroStaminaDepleted = false;
-                SetNitroSpeed(ship.m_nview?.GetZDO(), 0f);
+                SetNitroSpeed(ship.m_nview?.GetZDO(), 1f);
             }
         }
     }

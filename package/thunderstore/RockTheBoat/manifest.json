@@ -1,6 +1,6 @@
 {
   "name": "RockTheBoat",
-  "version_number": "1.0.11",
+  "version_number": "1.0.12",
   "website_url": "https://github.com/shudnal/RockTheBoat",
   "description": "Tinker your ship. Nothing serious but QoL.",
   "dependencies": [

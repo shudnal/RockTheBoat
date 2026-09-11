@@ -1,3 +1,8 @@
+# 1.0.12
+* Restricted boost input polling to the local helmsman and force calculations to the peer simulating each ship.
+* Removed allocating rower queries and safely restored per-ship force settings after nested calls or exceptions.
+* Fixed the initial paddling boost multiplier being reset to zero.
+
 # 1.0.11
 * Updated for the Valheim 1.0.7 release.
 * Migrated configuration registration and synchronization to the standalone ConditionalConfigSync dependency.
